@@ -1,0 +1,12 @@
+spring:
+  jpa:
+    show-sql: true
+  flyway:
+    out-of-order: true
+
+logging:
+  level:
+    com.newsportal: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql: TRACE
