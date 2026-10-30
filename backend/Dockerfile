@@ -1,6 +1,6 @@
 FROM eclipse-temurin:25-jdk-alpine AS builder
 
-ENV GRADLE_VERSION=8.10
+ENV GRADLE_VERSION=8.14
 ENV GRADLE_HOME=/opt/gradle/gradle-${GRADLE_VERSION}
 ENV PATH=${PATH}:${GRADLE_HOME}/bin
 
