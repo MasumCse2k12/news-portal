@@ -1,8 +1,16 @@
-FROM gradle:8.10-jdk25-alpine AS builder
+FROM eclipse-temurin:25-jdk-alpine AS builder
+
+ENV GRADLE_VERSION=8.10
+ENV GRADLE_HOME=/opt/gradle/gradle-${GRADLE_VERSION}
+ENV PATH=${PATH}:${GRADLE_HOME}/bin
+
+RUN apk add --no-cache wget unzip && \
+    wget -q https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip -O /tmp/gradle.zip && \
+    unzip -q /tmp/gradle.zip -d /opt/gradle && \
+    rm /tmp/gradle.zip
 
 WORKDIR /build
 
-# Cache dependencies layer separately
 COPY build.gradle.kts settings.gradle.kts ./
 COPY gradle ./gradle
 RUN --mount=type=cache,target=/root/.gradle \

@@ -1,235 +1,198 @@
+// =============================================================================
+//  News Portal — docker compose deployment pipeline
+//
+//  Builds and deploys the full stack (backend, frontend + infra services)
+//  on the server itself. Jenkins must be on the same machine as the target.
+//
+// -----------------------------------------------------------------------------
+//  A. Server / Jenkins prerequisites
+// -----------------------------------------------------------------------------
+//   1. Docker + Compose v2 installed; jenkins user in the docker group:
+//        sudo usermod -aG docker jenkins && sudo systemctl restart jenkins
+//   2. Jenkins plugins: Pipeline, Git, Credentials Binding
+//   No Java, Node, or Gradle needed on the agent — all builds run inside Docker.
+//
+// -----------------------------------------------------------------------------
+//  B. One credential to add in Jenkins
+// -----------------------------------------------------------------------------
+//   Manage Jenkins → Credentials → System → Global → Add credential
+//     Kind:  Secret file
+//     File:  your filled news-portal.env
+//     ID:    NEWS_PORTAL_ENV        ← must match exactly
+//
+// -----------------------------------------------------------------------------
+//  C. Create the Jenkins job
+// -----------------------------------------------------------------------------
+//   New Item → Pipeline → OK
+//   Pipeline section:
+//     Definition:   Pipeline script from SCM
+//     SCM:          Git
+//     URL:          https://github.com/MasumCse2k12/news-portal.git
+//     Branch:       */main
+//     Script Path:  Jenkinsfile
+//   Triggers: Poll SCM or add a GitHub webhook.
+//   Save → Build Now.
+// =============================================================================
+
 pipeline {
     agent any
 
-    environment {
-        DOCKER_REGISTRY = 'your-registry.io/newsportal'
-        APP_NAME        = 'news-portal-api'
-        FRONTEND_NAME   = 'news-portal-web'
-        SONAR_PROJECT   = 'news-portal'
-
-        // Container names for test dependencies — unique per build to allow parallel runs
-        ES_CONTAINER      = "np-es-${BUILD_NUMBER}"
-        RABBIT_CONTAINER  = "np-rabbit-${BUILD_NUMBER}"
-        ES_PORT           = "9200"
-        RABBIT_PORT       = "5672"
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '15'))
+        timeout(time: 45, unit: 'MINUTES')
+        timestamps()
     }
 
-    options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 30, unit: 'MINUTES')
+    environment {
+        COMPOSE_FILE = 'infrastructure/docker-compose.yml'
+        APP_NAME     = 'news-portal'
     }
 
     stages {
+
+        // ------------------------------------------------------------------
         stage('Checkout') {
+        // ------------------------------------------------------------------
             steps {
                 checkout scm
-                sh 'git log --oneline -5'
             }
         }
 
-        stage('Start Test Services') {
+        // ------------------------------------------------------------------
+        stage('Prepare .env') {
+        // ------------------------------------------------------------------
             steps {
-                sh """
-                    docker run -d --name ${ES_CONTAINER} \
-                        -p ${ES_PORT}:9200 \
-                        -e "discovery.type=single-node" \
-                        -e "xpack.security.enabled=false" \
-                        -e "ES_JAVA_OPTS=-Xms256m -Xmx256m" \
-                        elasticsearch:8.11.4
-
-                    docker run -d --name ${RABBIT_CONTAINER} \
-                        -p ${RABBIT_PORT}:5672 \
-                        rabbitmq:3.13-alpine
-
-                    echo "Waiting for Elasticsearch..."
-                    timeout 60 sh -c 'until curl -sf http://localhost:${ES_PORT}/_cluster/health; do sleep 3; done'
-
-                    echo "Waiting for RabbitMQ..."
-                    timeout 60 sh -c 'until nc -z localhost ${RABBIT_PORT}; do sleep 3; done'
-
-                    echo "Test services ready."
-                """
-            }
-        }
-
-        stage('Backend: Test') {
-            steps {
-                dir('backend') {
-                    sh './gradlew test -Dspring.profiles.active=test --no-daemon --no-build-cache'
-                    junit 'build/test-results/test/**/*.xml'
+                withCredentials([file(credentialsId: 'NEWS_PORTAL_ENV', variable: 'ENV_FILE')]) {
+                    sh 'cp "$ENV_FILE" .env'
                 }
-            }
-            post {
-                always {
-                    jacoco(execPattern: 'backend/build/jacoco/*.exec')
-                }
+                sh '''
+                    set -e
+                    for var in DB_URL DB_USER DB_PASSWORD JWT_SECRET \
+                               MINIO_ACCESS_KEY MINIO_SECRET_KEY \
+                               VITE_API_BASE_URL CORS_ORIGINS; do
+                        grep -q "^${var}=" .env \
+                            || { echo "ERROR: ${var} missing from .env"; exit 1; }
+                        val=$(grep "^${var}=" .env | cut -d= -f2-)
+                        [ -n "$val" ] \
+                            || { echo "ERROR: ${var} is empty in .env"; exit 1; }
+                    done
+
+                    dupes=$(grep -oE "^[A-Za-z_][A-Za-z0-9_]*=" .env | sort | uniq -d || true)
+                    [ -z "$dupes" ] \
+                        || { echo "ERROR: duplicate keys in .env: $dupes"; exit 1; }
+
+                    echo ".env validated."
+                '''
             }
         }
 
-        stage('Stop Test Services') {
+        // ------------------------------------------------------------------
+        stage('Build images') {
+        // ------------------------------------------------------------------
             steps {
-                sh """
-                    docker stop ${ES_CONTAINER} ${RABBIT_CONTAINER} || true
-                    docker rm   ${ES_CONTAINER} ${RABBIT_CONTAINER} || true
-                """
+                sh '''
+                    DOCKER_BUILDKIT=1 \
+                    docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
+                        --env-file .env \
+                        build --pull backend
+
+                    DOCKER_BUILDKIT=1 \
+                    docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
+                        --env-file .env \
+                        build --pull --no-cache frontend
+                '''
             }
         }
 
-        stage('Backend: Code Quality') {
-            when { branch pattern: 'develop|main', comparator: 'REGEXP' }
+        // ------------------------------------------------------------------
+        stage('Deploy') {
+        // ------------------------------------------------------------------
             steps {
-                dir('backend') {
-                    withSonarQubeEnv('SonarQube') {
-                        sh './gradlew sonar -Dsonar.projectKey=${SONAR_PROJECT} --no-daemon'
+                sh '''
+                    docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
+                        --env-file .env \
+                        up -d --remove-orphans --no-build
+                '''
+            }
+        }
+
+        // ------------------------------------------------------------------
+        stage('Container Status') {
+        // ------------------------------------------------------------------
+            steps {
+                sh '''
+                    echo "=== Running containers ==="
+                    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+                    echo ""
+                    echo "=== Stack containers ==="
+                    docker ps -a --filter "name=${APP_NAME}" \
+                        --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+                '''
+            }
+        }
+
+        // ------------------------------------------------------------------
+        stage('Health Check') {
+        // ------------------------------------------------------------------
+            steps {
+                script {
+                    def apiPort = sh(
+                        script: "grep '^SERVER_PORT=' .env | cut -d= -f2- || echo '8080'",
+                        returnStdout: true
+                    ).trim() ?: '8080'
+
+                    def healthy = false
+                    for (int i = 1; i <= 18; i++) {
+                        sleep(time: 5, unit: 'SECONDS')
+                        def rc = sh(
+                            script: "curl -fs http://127.0.0.1:${apiPort}/api/actuator/health | grep -q '\"status\":\"UP\"'",
+                            returnStatus: true
+                        )
+                        if (rc == 0) { healthy = true; break }
+                        echo "Waiting for backend on port ${apiPort}… attempt ${i}/18"
                     }
-                }
-            }
-        }
+                    if (!healthy) {
+                        error('Backend did not become healthy within 90 s.')
+                    }
+                    echo "Backend healthy on port ${apiPort}."
 
-        stage('Backend: Security Scan') {
-            when { branch 'main' }
-            steps {
-                dir('backend') {
-                    sh './gradlew dependencyCheckAnalyze --no-daemon'
-                }
-            }
-            post {
-                always {
-                    dependencyCheckPublisher pattern: 'backend/build/reports/dependency-check-report.xml'
-                }
-            }
-        }
-
-        stage('Backend: Build JAR') {
-            steps {
-                dir('backend') {
-                    sh './gradlew bootJar -x test --no-daemon'
-                    archiveArtifacts artifacts: 'build/libs/news-portal-api.jar'
-                }
-            }
-        }
-
-        stage('Frontend: Build') {
-            steps {
-                dir('frontend') {
-                    sh 'npm ci'
-                    sh 'npm run build'
-                }
-            }
-        }
-
-        stage('Docker: Build & Push') {
-            when { branch pattern: 'develop|main', comparator: 'REGEXP' }
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'docker-registry-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    ),
-                    file(
-                        credentialsId: 'NEWS_PORTAL_ENV',
-                        variable: 'ENV_FILE'
+                    def rc = sh(
+                        script: "curl -fso /dev/null http://127.0.0.1:80",
+                        returnStatus: true
                     )
-                ]) {
-                    sh "echo $DOCKER_PASS | docker login ${DOCKER_REGISTRY} -u $DOCKER_USER --password-stdin"
-
-                    sh """
-                        export \$(grep -v '^#' \$ENV_FILE | xargs)
-                        docker build \
-                            --build-arg VITE_API_BASE_URL=\$VITE_API_BASE_URL \
-                            -t ${DOCKER_REGISTRY}/${FRONTEND_NAME}:${BUILD_NUMBER} \
-                            ./frontend
-                        docker build \
-                            -t ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} \
-                            ./backend
-                        docker push ${DOCKER_REGISTRY}/${FRONTEND_NAME}:${BUILD_NUMBER}
-                        docker push ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}
-                    """
-                }
-            }
-        }
-
-        stage('DB Migration: Staging') {
-            when { branch 'develop' }
-            steps {
-                withCredentials([file(credentialsId: 'NEWS_PORTAL_ENV', variable: 'ENV_FILE')]) {
-                    dir('backend') {
-                        sh """
-                            export \$(grep -v '^#' \$ENV_FILE | xargs)
-                            ./gradlew flywayMigrate \
-                                -Dflyway.url=\$DB_URL \
-                                -Dflyway.user=\$DB_USER \
-                                -Dflyway.password=\$DB_PASSWORD \
-                                --no-daemon
-                        """
+                    if (rc != 0) {
+                        error('Frontend (Nginx) is not reachable on port 80.')
                     }
+                    echo "Frontend healthy on port 80."
                 }
             }
         }
 
-        stage('Deploy: Staging') {
-            when { branch 'develop' }
+        // ------------------------------------------------------------------
+        stage('Prune old images') {
+        // ------------------------------------------------------------------
             steps {
-                withCredentials([file(credentialsId: 'NEWS_PORTAL_ENV', variable: 'ENV_FILE')]) {
-                    sh """
-                        docker-compose -f infrastructure/docker-compose.yml \
-                            --env-file \$ENV_FILE \
-                            up -d --no-deps backend frontend
-                    """
-                }
-                echo "Staging deployed: ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}"
-            }
-        }
-
-        stage('Deploy: Production') {
-            when { branch 'main' }
-            input {
-                message "Deploy ${APP_NAME}:${BUILD_NUMBER} to PRODUCTION?"
-                ok "Deploy Now"
-                submitter "admin,lead-engineer"
-            }
-            steps {
-                withCredentials([file(credentialsId: 'NEWS_PORTAL_ENV', variable: 'ENV_FILE')]) {
-                    dir('backend') {
-                        sh """
-                            export \$(grep -v '^#' \$ENV_FILE | xargs)
-                            ./gradlew flywayMigrate \
-                                -Dflyway.url=\$DB_URL \
-                                -Dflyway.user=\$DB_USER \
-                                -Dflyway.password=\$DB_PASSWORD \
-                                --no-daemon
-                        """
-                    }
-                    echo "Deploying ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} to production..."
-                    sh """
-                        docker-compose -f infrastructure/docker-compose.yml \
-                            --env-file \$ENV_FILE \
-                            up -d --no-deps backend frontend
-                    """
-                }
+                sh 'docker image prune -f'
             }
         }
     }
 
     post {
-        always {
-            // Safety net: clean up test containers if any stage failed before Stop Test Services
-            sh """
-                docker stop ${ES_CONTAINER} ${RABBIT_CONTAINER} 2>/dev/null || true
-                docker rm   ${ES_CONTAINER} ${RABBIT_CONTAINER} 2>/dev/null || true
-            """
-            cleanWs()
-        }
         success {
-            echo "Pipeline succeeded: ${APP_NAME} build ${BUILD_NUMBER}"
+            echo "Deployment successful — stack '${APP_NAME}' is live."
+            sh 'rm -f .env'
         }
         failure {
-            emailext(
-                subject: "FAILED: ${APP_NAME} build ${BUILD_NUMBER}",
-                body: "Build ${BUILD_NUMBER} failed. Check: ${BUILD_URL}",
-                to: 'team@newsportal.com'
-            )
+            echo "Deployment FAILED. Dumping recent container logs…"
+            sh '''
+                docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
+                    logs --tail=80 || true
+            '''
+            sh 'rm -f .env'
+        }
+        aborted {
+            sh 'rm -f .env'
         }
     }
 }
