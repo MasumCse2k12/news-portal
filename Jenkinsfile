@@ -95,7 +95,7 @@ pipeline {
                     DOCKER_BUILDKIT=1 \
                     docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
                         --env-file .env \
-                        build --pull backend
+                        build --pull --no-cache backend
 
                     DOCKER_BUILDKIT=1 \
                     docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
