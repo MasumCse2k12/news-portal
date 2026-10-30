@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE_URL = '/api/v1';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -44,6 +44,7 @@ export const articleApi = {
   getByCategory: (slug, params) => apiClient.get(`/public/categories/${slug}/articles`, { params }),
   getByTag: (slug, params) => apiClient.get(`/public/tags/${slug}/articles`, { params }),
   search: (params) => apiClient.get('/public/search', { params }),
+  getTrending: () => apiClient.get('/public/trending'),
 };
 
 // ---- Categories ----

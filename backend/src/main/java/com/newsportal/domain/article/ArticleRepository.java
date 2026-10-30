@@ -30,6 +30,9 @@ public interface ArticleRepository extends JpaRepository<Article, UUID> {
 
     List<Article> findByFeaturedTrueAndStatusOrderByPublishedAtDesc(ArticleStatus status);
 
+    List<Article> findTop10ByStatusAndPublishedAtAfterOrderByViewCountDesc(
+            ArticleStatus status, Instant since);
+
     Page<Article> findByAuthorIdAndStatusInOrderByCreatedAtDesc(
             UUID authorId, List<ArticleStatus> statuses, Pageable pageable);
 

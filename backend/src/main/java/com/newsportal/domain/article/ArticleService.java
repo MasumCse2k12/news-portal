@@ -12,6 +12,7 @@ import com.newsportal.domain.tag.TagRepository;
 import com.newsportal.domain.user.User;
 import com.newsportal.domain.user.UserService;
 import com.newsportal.messaging.publisher.ArticleEventPublisher;
+import com.newsportal.search.SearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -41,6 +43,7 @@ public class ArticleService {
     private final TagRepository tagRepository;
     private final UserService userService;
     private final ArticleEventPublisher eventPublisher;
+    private final SearchService searchService;
 
     @Transactional
     @CacheEvict(value = {"articles", "breaking", "trending"}, allEntries = true)
@@ -129,6 +132,15 @@ public class ArticleService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable("trending")
+    public List<ArticleResponse> getTrending() {
+        Instant since = Instant.now().minus(24, ChronoUnit.HOURS);
+        return articleRepository.findTop10ByStatusAndPublishedAtAfterOrderByViewCountDesc(
+                        ArticleStatus.PUBLISHED, since)
+                .stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<ArticleResponse> getFeatured() {
         return articleRepository.findByFeaturedTrueAndStatusOrderByPublishedAtDesc(ArticleStatus.PUBLISHED)
                 .stream().limit(10).map(this::toResponse).toList();
@@ -196,7 +208,9 @@ public class ArticleService {
         Article article = articleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Article", "id", id));
         article.setStatus(ArticleStatus.ARCHIVED);
-        return toResponse(articleRepository.save(article));
+        ArticleResponse response = toResponse(articleRepository.save(article));
+        searchService.removeFromIndex(id);
+        return response;
     }
 
     @Transactional

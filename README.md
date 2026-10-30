@@ -7,15 +7,20 @@ Modelled after leading portals like Prothom Alo, BBC, Al Jazeera, and CNN.
 
 | Layer | Technology |
 |---|---|
+| Layer | Technology |
+|---|---|
 | Backend | Java 25 + Spring Boot 4.1 (Monolith) |
-| Frontend | React 19 + Vite 6 + Redux Toolkit |
-| Database | PostgreSQL 16 (primary), Redis 7 (cache/sessions) |
-| Search | Elasticsearch 8 |
+| Build | Gradle 8.10 (Kotlin DSL) |
+| Frontend | React 19 + Vite 6 + Redux Toolkit + TanStack Query |
+| Styling | Tailwind CSS 4 |
+| Database | PostgreSQL 16 (primary), Redis 7 (cache) |
+| Search | Elasticsearch 8 (full-text, bilingual) |
 | Media Storage | MinIO (S3-compatible) |
 | Message Queue | RabbitMQ 3 |
-| Migration | Flyway |
-| CI/CD | Jenkins |
+| Migration | Flyway 11 |
+| CI/CD | Jenkins (Gradle + Docker test services) |
 | Containerization | Docker + Docker Compose |
+| Runtime | Node.js 24 (frontend build), eclipse-temurin:25 (backend) |
 | Reverse Proxy | Nginx |
 | Monitoring | Prometheus + Grafana |
 
@@ -61,7 +66,8 @@ news-portal/
 
 ### Prerequisites
 - Docker Desktop
-- Java 25+, Maven 3.9+
+- Java 25+
+- Gradle 8.10+ (or use `./gradlew` wrapper — run `gradle wrapper --gradle-version 8.10` once inside `backend/`)
 - Node.js 24+, npm
 
 ### 1. Start infrastructure services
@@ -72,7 +78,7 @@ docker-compose -f infrastructure/docker-compose.yml up -d
 ### 2. Run backend
 ```bash
 cd backend
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+./gradlew bootRun --args='--spring.profiles.active=dev'
 ```
 
 ### 3. Run frontend
@@ -95,13 +101,18 @@ npm run dev
 
 ## Environment Variables
 
-Copy `backend/src/main/resources/application-dev.yml` and configure:
+All config lives in `infrastructure/news-portal.env`. Fill in all `CHANGE_ME` values before running.
+Key variables:
+- `SERVER_HOST`, `SERVER_PORT` — backend bind address and port
+- `VITE_API_BASE_URL` — full API URL baked into the frontend bundle at build time
 - `DB_URL`, `DB_USER`, `DB_PASSWORD`
-- `REDIS_HOST`, `REDIS_PORT`
-- `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
-- `RABBITMQ_HOST`, `RABBITMQ_PORT`
-- `JWT_SECRET` (256-bit secret)
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`
+- `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_PUBLIC_URL`
+- `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`
+- `JWT_SECRET` — generate with `openssl rand -hex 32`
 - `ELASTICSEARCH_URIS`
+- `MAIL_HOST`, `MAIL_USERNAME`, `MAIL_PASSWORD`
+- `CORS_ORIGINS`
 
 ## Documentation
 

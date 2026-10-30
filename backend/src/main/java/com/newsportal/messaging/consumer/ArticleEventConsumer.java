@@ -1,13 +1,16 @@
 package com.newsportal.messaging.consumer;
 
 import com.newsportal.config.RabbitMQConfig;
+import com.newsportal.domain.article.Article;
 import com.newsportal.domain.article.ArticleRepository;
+import com.newsportal.search.SearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -23,16 +26,23 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ArticleEventConsumer {
 
     private final ArticleRepository articleRepository;
+    private final SearchService searchService;
 
     // In-memory view count buffer: articleId -> count
     private final ConcurrentHashMap<UUID, AtomicLong> viewCountBuffer = new ConcurrentHashMap<>();
 
     @RabbitListener(queues = RabbitMQConfig.Q_ARTICLE_PUBLISHED)
     public void handleArticlePublished(Map<String, Object> event) {
-        String articleId = (String) event.get("articleId");
+        String articleIdStr = (String) event.get("articleId");
         String slug = (String) event.get("slug");
         log.info("Article published event received: slug={}", slug);
-        // TODO: trigger Elasticsearch indexing, sitemap regeneration, newsletter
+
+        Optional<Article> article = articleRepository.findById(UUID.fromString(articleIdStr));
+        if (article.isPresent()) {
+            searchService.indexArticle(article.get());
+        } else {
+            log.warn("Article not found for indexing: id={}", articleIdStr);
+        }
     }
 
     @RabbitListener(queues = RabbitMQConfig.Q_ARTICLE_VIEWED)

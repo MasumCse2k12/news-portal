@@ -4,6 +4,7 @@ import com.newsportal.common.ApiResponse;
 import com.newsportal.common.PageResponse;
 import com.newsportal.domain.article.dto.ArticleCreateRequest;
 import com.newsportal.domain.article.dto.ArticleResponse;
+import com.newsportal.search.SearchService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +27,7 @@ import java.util.UUID;
 public class ArticleController {
 
     private final ArticleService articleService;
+    private final SearchService searchService;
 
     // ---- Public endpoints ----
 
@@ -50,10 +52,26 @@ public class ArticleController {
         return ResponseEntity.ok(ApiResponse.ok(articleService.getFeatured()));
     }
 
+    @GetMapping("/api/v1/public/trending")
+    @Operation(summary = "Get trending articles (top 10 most-viewed in last 24h)")
+    public ResponseEntity<ApiResponse<List<ArticleResponse>>> getTrending() {
+        return ResponseEntity.ok(ApiResponse.ok(articleService.getTrending()));
+    }
+
     @GetMapping("/api/v1/public/articles/{slug}")
     @Operation(summary = "Get article by slug")
     public ResponseEntity<ApiResponse<ArticleResponse>> getBySlug(@PathVariable String slug) {
         return ResponseEntity.ok(ApiResponse.ok(articleService.getBySlug(slug)));
+    }
+
+    @GetMapping("/api/v1/public/search")
+    @Operation(summary = "Full-text search articles via Elasticsearch")
+    public ResponseEntity<ApiResponse<PageResponse<ArticleResponse>>> search(
+            @RequestParam String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageRequest pageable = PageRequest.of(page, size);
+        return ResponseEntity.ok(ApiResponse.ok(searchService.search(q, pageable)));
     }
 
     @GetMapping("/api/v1/public/categories/{slug}/articles")

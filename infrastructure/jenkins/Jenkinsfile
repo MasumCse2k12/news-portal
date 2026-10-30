@@ -10,6 +10,12 @@ pipeline {
         APP_NAME        = 'news-portal-api'
         FRONTEND_NAME   = 'news-portal-web'
         SONAR_PROJECT   = 'news-portal'
+
+        // Container names for test dependencies — unique per build to allow parallel runs
+        ES_CONTAINER      = "np-es-${BUILD_NUMBER}"
+        RABBIT_CONTAINER  = "np-rabbit-${BUILD_NUMBER}"
+        ES_PORT           = "9200"
+        RABBIT_PORT       = "5672"
     }
 
     options {
@@ -25,17 +31,51 @@ pipeline {
             }
         }
 
+        stage('Start Test Services') {
+            steps {
+                sh """
+                    docker run -d --name ${ES_CONTAINER} \
+                        -p ${ES_PORT}:9200 \
+                        -e "discovery.type=single-node" \
+                        -e "xpack.security.enabled=false" \
+                        -e "ES_JAVA_OPTS=-Xms256m -Xmx256m" \
+                        elasticsearch:8.11.4
+
+                    docker run -d --name ${RABBIT_CONTAINER} \
+                        -p ${RABBIT_PORT}:5672 \
+                        rabbitmq:3.13-alpine
+
+                    echo "Waiting for Elasticsearch..."
+                    timeout 60 sh -c 'until curl -sf http://localhost:${ES_PORT}/_cluster/health; do sleep 3; done'
+
+                    echo "Waiting for RabbitMQ..."
+                    timeout 60 sh -c 'until nc -z localhost ${RABBIT_PORT}; do sleep 3; done'
+
+                    echo "Test services ready."
+                """
+            }
+        }
+
         stage('Backend: Test') {
             steps {
                 dir('backend') {
-                    sh './mvnw test -Dspring.profiles.active=test --no-transfer-progress'
-                    junit 'target/surefire-reports/**/*.xml'
+                    sh './gradlew test -Dspring.profiles.active=test --no-daemon --no-build-cache'
+                    junit 'build/test-results/test/**/*.xml'
                 }
             }
             post {
                 always {
-                    jacoco(execPattern: 'backend/target/jacoco.exec')
+                    jacoco(execPattern: 'backend/build/jacoco/*.exec')
                 }
+            }
+        }
+
+        stage('Stop Test Services') {
+            steps {
+                sh """
+                    docker stop ${ES_CONTAINER} ${RABBIT_CONTAINER} || true
+                    docker rm   ${ES_CONTAINER} ${RABBIT_CONTAINER} || true
+                """
             }
         }
 
@@ -44,7 +84,7 @@ pipeline {
             steps {
                 dir('backend') {
                     withSonarQubeEnv('SonarQube') {
-                        sh './mvnw sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT} --no-transfer-progress'
+                        sh './gradlew sonar -Dsonar.projectKey=${SONAR_PROJECT} --no-daemon'
                     }
                 }
             }
@@ -54,12 +94,12 @@ pipeline {
             when { branch 'main' }
             steps {
                 dir('backend') {
-                    sh './mvnw org.owasp:dependency-check-maven:check --no-transfer-progress'
+                    sh './gradlew dependencyCheckAnalyze --no-daemon'
                 }
             }
             post {
                 always {
-                    dependencyCheckPublisher pattern: 'backend/target/dependency-check-report.xml'
+                    dependencyCheckPublisher pattern: 'backend/build/reports/dependency-check-report.xml'
                 }
             }
         }
@@ -67,8 +107,8 @@ pipeline {
         stage('Backend: Build JAR') {
             steps {
                 dir('backend') {
-                    sh './mvnw package -DskipTests --no-transfer-progress'
-                    archiveArtifacts artifacts: 'target/news-portal-api.jar'
+                    sh './gradlew bootJar -x test --no-daemon'
+                    archiveArtifacts artifacts: 'build/libs/news-portal-api.jar'
                 }
             }
         }
@@ -85,16 +125,31 @@ pipeline {
         stage('Docker: Build & Push') {
             when { branch pattern: 'develop|main', comparator: 'REGEXP' }
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-registry-creds',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'docker-registry-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    ),
+                    file(
+                        credentialsId: 'NEWS_PORTAL_ENV',
+                        variable: 'ENV_FILE'
+                    )
+                ]) {
                     sh "echo $DOCKER_PASS | docker login ${DOCKER_REGISTRY} -u $DOCKER_USER --password-stdin"
-                    sh "docker build -t ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} ./backend"
-                    sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_NAME}:${BUILD_NUMBER} ./frontend"
-                    sh "docker push ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}"
-                    sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_NAME}:${BUILD_NUMBER}"
+
+                    sh """
+                        export \$(grep -v '^#' \$ENV_FILE | xargs)
+                        docker build \
+                            --build-arg VITE_API_BASE_URL=\$VITE_API_BASE_URL \
+                            -t ${DOCKER_REGISTRY}/${FRONTEND_NAME}:${BUILD_NUMBER} \
+                            ./frontend
+                        docker build \
+                            -t ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} \
+                            ./backend
+                        docker push ${DOCKER_REGISTRY}/${FRONTEND_NAME}:${BUILD_NUMBER}
+                        docker push ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}
+                    """
                 }
             }
         }
@@ -102,18 +157,15 @@ pipeline {
         stage('DB Migration: Staging') {
             when { branch 'develop' }
             steps {
-                withCredentials([
-                    string(credentialsId: 'staging-db-url',  variable: 'DB_URL'),
-                    string(credentialsId: 'staging-db-user', variable: 'DB_USER'),
-                    string(credentialsId: 'staging-db-pass', variable: 'DB_PASS')
-                ]) {
+                withCredentials([file(credentialsId: 'NEWS_PORTAL_ENV', variable: 'ENV_FILE')]) {
                     dir('backend') {
                         sh """
-                            ./mvnw flyway:migrate \
-                              -Dflyway.url=${DB_URL} \
-                              -Dflyway.user=${DB_USER} \
-                              -Dflyway.password=${DB_PASS} \
-                              --no-transfer-progress
+                            export \$(grep -v '^#' \$ENV_FILE | xargs)
+                            ./gradlew flywayMigrate \
+                                -Dflyway.url=\$DB_URL \
+                                -Dflyway.user=\$DB_USER \
+                                -Dflyway.password=\$DB_PASSWORD \
+                                --no-daemon
                         """
                     }
                 }
@@ -123,10 +175,13 @@ pipeline {
         stage('Deploy: Staging') {
             when { branch 'develop' }
             steps {
-                sh """
-                    docker-compose -f infrastructure/docker-compose.yml \
-                        up -d --no-deps backend frontend
-                """
+                withCredentials([file(credentialsId: 'NEWS_PORTAL_ENV', variable: 'ENV_FILE')]) {
+                    sh """
+                        docker-compose -f infrastructure/docker-compose.yml \
+                            --env-file \$ENV_FILE \
+                            up -d --no-deps backend frontend
+                    """
+                }
                 echo "Staging deployed: ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER}"
             }
         }
@@ -139,33 +194,37 @@ pipeline {
                 submitter "admin,lead-engineer"
             }
             steps {
-                withCredentials([
-                    string(credentialsId: 'prod-db-url',  variable: 'DB_URL'),
-                    string(credentialsId: 'prod-db-user', variable: 'DB_USER'),
-                    string(credentialsId: 'prod-db-pass', variable: 'DB_PASS')
-                ]) {
+                withCredentials([file(credentialsId: 'NEWS_PORTAL_ENV', variable: 'ENV_FILE')]) {
                     dir('backend') {
                         sh """
-                            ./mvnw flyway:migrate \
-                              -Dflyway.url=${DB_URL} \
-                              -Dflyway.user=${DB_USER} \
-                              -Dflyway.password=${DB_PASS} \
-                              --no-transfer-progress
+                            export \$(grep -v '^#' \$ENV_FILE | xargs)
+                            ./gradlew flywayMigrate \
+                                -Dflyway.url=\$DB_URL \
+                                -Dflyway.user=\$DB_USER \
+                                -Dflyway.password=\$DB_PASSWORD \
+                                --no-daemon
                         """
                     }
+                    echo "Deploying ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} to production..."
+                    sh """
+                        docker-compose -f infrastructure/docker-compose.yml \
+                            --env-file \$ENV_FILE \
+                            up -d --no-deps backend frontend
+                    """
                 }
-                // Replace with kubectl set image for Kubernetes
-                echo "Deploying ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} to production..."
-                sh """
-                    kubectl set image deployment/${APP_NAME} \
-                        ${APP_NAME}=${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_NUMBER} \
-                        -n production
-                """
             }
         }
     }
 
     post {
+        always {
+            // Safety net: clean up test containers if any stage failed before Stop Test Services
+            sh """
+                docker stop ${ES_CONTAINER} ${RABBIT_CONTAINER} 2>/dev/null || true
+                docker rm   ${ES_CONTAINER} ${RABBIT_CONTAINER} 2>/dev/null || true
+            """
+            cleanWs()
+        }
         success {
             echo "Pipeline succeeded: ${APP_NAME} build ${BUILD_NUMBER}"
         }
@@ -175,9 +234,6 @@ pipeline {
                 body: "Build ${BUILD_NUMBER} failed. Check: ${BUILD_URL}",
                 to: 'team@newsportal.com'
             )
-        }
-        always {
-            cleanWs()
         }
     }
 }
