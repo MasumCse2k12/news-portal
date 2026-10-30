@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    tools {
-        jdk 'jdk-25'
-    }
-
     environment {
         DOCKER_REGISTRY = 'your-registry.io/newsportal'
         APP_NAME        = 'news-portal-api'
