@@ -102,7 +102,7 @@ services:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
       SERVER_PORT: ${SERVER_PORT:-8080}
-      DB_URL: ${DB_URL}
+      DB_URL: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME:-newsportal}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: ${REDIS_HOST:-redis}
