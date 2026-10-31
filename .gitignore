@@ -3,6 +3,7 @@ backend/target/
 backend/.mvn/wrapper/maven-wrapper.jar
 *.class
 *.jar
+!backend/gradle/wrapper/gradle-wrapper.jar
 *.war
 
 # Frontend
