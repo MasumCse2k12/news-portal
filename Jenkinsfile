@@ -215,14 +215,19 @@ pipeline {
                     }
                     echo "Backend healthy on port ${apiPort}."
 
+                    def fePort = sh(
+                        script: "grep '^VITE_PORT=' .env | cut -d= -f2- || echo '80'",
+                        returnStdout: true
+                    ).trim() ?: '80'
+
                     def rc = sh(
-                        script: "curl -fso /dev/null http://127.0.0.1:80",
+                        script: "curl -fso /dev/null http://127.0.0.1:${fePort}",
                         returnStatus: true
                     )
                     if (rc != 0) {
-                        error('Frontend (Nginx) is not reachable on port 80.')
+                        error("Frontend (Nginx) is not reachable on port ${fePort}.")
                     }
-                    echo "Frontend healthy on port 80."
+                    echo "Frontend healthy on port ${fePort}."
                 }
             }
         }
