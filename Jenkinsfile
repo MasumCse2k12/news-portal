@@ -192,7 +192,7 @@ pipeline {
                     for (int i = 1; i <= 18; i++) {
                         sleep(time: 5, unit: 'SECONDS')
                         def rc = sh(
-                            script: "curl -fs http://127.0.0.1:${apiPort}/api/actuator/health | grep -q '\"status\":\"UP\"'",
+                            script: "curl -fs http://127.0.0.1:${apiPort}/actuator/health | grep -q '\"status\":\"UP\"'",
                             returnStatus: true
                         )
                         if (rc == 0) { healthy = true; break }
@@ -234,8 +234,18 @@ pipeline {
             sh '''
                 ENV_OPT=""
                 [ -f .env ] && ENV_OPT="--env-file .env"
+
+                echo "=== backend ==="
                 docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
-                    $ENV_OPT logs --tail=80 || true
+                    $ENV_OPT logs --tail=100 backend || true
+
+                echo "=== frontend ==="
+                docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
+                    $ENV_OPT logs --tail=30 frontend || true
+
+                echo "=== postgres ==="
+                docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
+                    $ENV_OPT logs --tail=20 postgres || true
             '''
             sh 'rm -f .env'
         }
