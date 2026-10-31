@@ -70,7 +70,8 @@ pipeline {
                     set -e
                     for var in DB_URL DB_USER DB_PASSWORD JWT_SECRET \
                                MINIO_ACCESS_KEY MINIO_SECRET_KEY \
-                               VITE_API_BASE_URL CORS_ORIGINS; do
+                               VITE_API_BASE_URL VITE_HOST VITE_PORT \
+                               SERVER_HOST SERVER_PORT CORS_ORIGINS; do
                         grep -q "^${var}=" .env \
                             || { echo "ERROR: ${var} missing from .env"; exit 1; }
                         val=$(grep "^${var}=" .env | cut -d= -f2-)
