@@ -1,4 +1,4 @@
-CREATE TABLE categories (
+CREATE TABLE IF NOT EXISTS categories (
     id          SERIAL PRIMARY KEY,
     name        VARCHAR(100) NOT NULL,
     name_bn     VARCHAR(100),
@@ -8,5 +8,5 @@ CREATE TABLE categories (
     is_active   BOOLEAN NOT NULL DEFAULT TRUE
 );
 
-CREATE INDEX idx_categories_slug      ON categories(slug);
-CREATE INDEX idx_categories_parent_id ON categories(parent_id);
+CREATE INDEX IF NOT EXISTS idx_categories_slug      ON categories(slug);
+CREATE INDEX IF NOT EXISTS idx_categories_parent_id ON categories(parent_id);

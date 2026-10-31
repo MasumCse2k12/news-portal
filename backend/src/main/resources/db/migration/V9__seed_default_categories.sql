@@ -7,30 +7,38 @@ INSERT INTO categories (name, name_bn, slug, sort_order) VALUES
     ('Technology',     'প্রযুক্তি',      'technology',     5),
     ('Entertainment',  'বিনোদন',        'entertainment',  6),
     ('Opinion',        'মতামত',         'opinion',        7),
-    ('Health',         'স্বাস্থ্য',       'health',         8);
+    ('Health',         'স্বাস্থ্য',       'health',         8)
+ON CONFLICT (slug) DO NOTHING;
 
 -- Bangladesh sub-categories
 INSERT INTO categories (name, name_bn, slug, parent_id, sort_order)
-SELECT 'Dhaka', 'ঢাকা', 'dhaka', id, 1 FROM categories WHERE slug = 'bangladesh';
+SELECT 'Dhaka', 'ঢাকা', 'dhaka', id, 1 FROM categories WHERE slug = 'bangladesh'
+ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO categories (name, name_bn, slug, parent_id, sort_order)
-SELECT 'Chittagong', 'চট্টগ্রাম', 'chittagong', id, 2 FROM categories WHERE slug = 'bangladesh';
+SELECT 'Chittagong', 'চট্টগ্রাম', 'chittagong', id, 2 FROM categories WHERE slug = 'bangladesh'
+ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO categories (name, name_bn, slug, parent_id, sort_order)
-SELECT 'Sylhet', 'সিলেট', 'sylhet', id, 3 FROM categories WHERE slug = 'bangladesh';
+SELECT 'Sylhet', 'সিলেট', 'sylhet', id, 3 FROM categories WHERE slug = 'bangladesh'
+ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO categories (name, name_bn, slug, parent_id, sort_order)
-SELECT 'Rajshahi', 'রাজশাহী', 'rajshahi', id, 4 FROM categories WHERE slug = 'bangladesh';
+SELECT 'Rajshahi', 'রাজশাহী', 'rajshahi', id, 4 FROM categories WHERE slug = 'bangladesh'
+ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO categories (name, name_bn, slug, parent_id, sort_order)
-SELECT 'Politics', 'রাজনীতি', 'bd-politics', id, 5 FROM categories WHERE slug = 'bangladesh';
+SELECT 'Politics', 'রাজনীতি', 'bd-politics', id, 5 FROM categories WHERE slug = 'bangladesh'
+ON CONFLICT (slug) DO NOTHING;
 
 -- Sports sub-categories
 INSERT INTO categories (name, name_bn, slug, parent_id, sort_order)
-SELECT 'Cricket', 'ক্রিকেট', 'cricket', id, 1 FROM categories WHERE slug = 'sports';
+SELECT 'Cricket', 'ক্রিকেট', 'cricket', id, 1 FROM categories WHERE slug = 'sports'
+ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO categories (name, name_bn, slug, parent_id, sort_order)
-SELECT 'Football', 'ফুটবল', 'football', id, 2 FROM categories WHERE slug = 'sports';
+SELECT 'Football', 'ফুটবল', 'football', id, 2 FROM categories WHERE slug = 'sports'
+ON CONFLICT (slug) DO NOTHING;
 
 -- Default admin user (password: Admin@12345 — CHANGE IN PRODUCTION)
 INSERT INTO users (username, email, password, full_name, role, is_active) VALUES (
@@ -40,4 +48,5 @@ INSERT INTO users (username, email, password, full_name, role, is_active) VALUES
     'System Administrator',
     'ADMIN',
     TRUE
-);
+)
+ON CONFLICT (username) DO NOTHING;

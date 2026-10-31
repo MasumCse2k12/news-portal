@@ -1,4 +1,4 @@
-CREATE TABLE media (
+CREATE TABLE IF NOT EXISTS media (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     filename        VARCHAR(300) NOT NULL,
     stored_name     VARCHAR(300) NOT NULL,
@@ -14,4 +14,4 @@ CREATE TABLE media (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_media_uploaded_by ON media(uploaded_by, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_uploaded_by ON media(uploaded_by, created_at DESC);

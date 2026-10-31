@@ -1,4 +1,4 @@
-CREATE TABLE audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     id          BIGSERIAL PRIMARY KEY,
     user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
     action      VARCHAR(100) NOT NULL,
@@ -10,6 +10,6 @@ CREATE TABLE audit_log (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_user_time   ON audit_log(user_id, created_at DESC);
-CREATE INDEX idx_audit_entity      ON audit_log(entity_type, entity_id);
-CREATE INDEX idx_audit_action      ON audit_log(action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user_time   ON audit_log(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_entity      ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action      ON audit_log(action, created_at DESC);

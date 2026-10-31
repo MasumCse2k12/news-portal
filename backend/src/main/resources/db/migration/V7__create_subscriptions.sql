@@ -1,4 +1,4 @@
-CREATE TABLE subscriptions (
+CREATE TABLE IF NOT EXISTS subscriptions (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email             VARCHAR(100) NOT NULL UNIQUE,
     name              VARCHAR(100),
@@ -7,4 +7,4 @@ CREATE TABLE subscriptions (
     unsubscribed_at   TIMESTAMPTZ
 );
 
-CREATE INDEX idx_subscriptions_active ON subscriptions(is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions(is_active) WHERE is_active = TRUE;
