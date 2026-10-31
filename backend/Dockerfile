@@ -9,11 +9,13 @@ COPY build.gradle.kts settings.gradle.kts ./
 RUN chmod +x gradlew
 
 RUN --mount=type=cache,target=/root/.gradle \
-    ./gradlew dependencies --no-daemon -q
+    GRADLE_OPTS="-Xmx512m -Xms256m" \
+    ./gradlew dependencies --no-daemon
 
 COPY src ./src
 RUN --mount=type=cache,target=/root/.gradle \
-    ./gradlew bootJar -x test --no-daemon -q
+    GRADLE_OPTS="-Xmx512m -Xms256m" \
+    ./gradlew bootJar -x test --no-daemon
 
 FROM eclipse-temurin:25-jre-alpine AS runtime
 
