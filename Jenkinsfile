@@ -118,21 +118,33 @@ pipeline {
                     # external containers into it.
                     docker network create "$NETWORK" 2>/dev/null || true
 
+                    # port_in_use <port>  — returns 0 if the port is already bound
+                    port_in_use() {
+                        local p=$1
+                        ss     -tlnp 2>/dev/null | grep -q ":${p}[[:space:]]" && return 0
+                        netstat -tlnp 2>/dev/null | grep -q ":${p}[[:space:]]" && return 0
+                        nc -z 127.0.0.1 "${p}"   2>/dev/null                   && return 0
+                        return 1
+                    }
+
                     # wire_or_skip <service-name> <port>
-                    # If <port> is already bound by an external container, attach
-                    # that container to our network under the service alias so the
-                    # backend can reach it by name, then mark the service as skipped.
+                    # • Docker container holds the port → connect it into our network
+                    #   under the service alias so the backend can reach it by name.
+                    # • Native process holds the port → skip starting the service;
+                    #   the .env must point to host-gateway for that service.
                     SKIP_INFRA=""
                     wire_or_skip() {
                         local svc=$1 port=$2
-                        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+                        if port_in_use "${port}"; then
                             local cid
                             cid=$(docker ps --filter "publish=${port}" --format "{{.ID}}" | head -1)
                             if [ -n "$cid" ]; then
-                                echo "Port ${port} already bound — reusing container ${cid} as '${svc}'"
+                                echo "Port ${port} held by Docker container ${cid} — reusing as '${svc}'"
                                 docker network connect --alias "${svc}" "${NETWORK}" "${cid}" 2>/dev/null || true
-                                SKIP_INFRA="${SKIP_INFRA} ${svc}"
+                            else
+                                echo "Port ${port} held by native process — skipping '${svc}' (ensure .env points to host-gateway)"
                             fi
+                            SKIP_INFRA="${SKIP_INFRA} ${svc}"
                         fi
                     }
 
