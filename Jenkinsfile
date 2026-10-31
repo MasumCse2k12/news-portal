@@ -110,9 +110,55 @@ pipeline {
         // ------------------------------------------------------------------
             steps {
                 sh '''
-                    docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
-                        --env-file .env \
-                        up -d --remove-orphans --no-build
+                    set -e
+                    COMPOSE="docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} --env-file .env"
+                    NETWORK="${APP_NAME}_default"
+
+                    # Ensure the compose network exists before we try to wire
+                    # external containers into it.
+                    docker network create "$NETWORK" 2>/dev/null || true
+
+                    # wire_or_skip <service-name> <port>
+                    # If <port> is already bound by an external container, attach
+                    # that container to our network under the service alias so the
+                    # backend can reach it by name, then mark the service as skipped.
+                    SKIP_INFRA=""
+                    wire_or_skip() {
+                        local svc=$1 port=$2
+                        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+                            local cid
+                            cid=$(docker ps --filter "publish=${port}" --format "{{.ID}}" | head -1)
+                            if [ -n "$cid" ]; then
+                                echo "Port ${port} already bound — reusing container ${cid} as '${svc}'"
+                                docker network connect --alias "${svc}" "${NETWORK}" "${cid}" 2>/dev/null || true
+                                SKIP_INFRA="${SKIP_INFRA} ${svc}"
+                            fi
+                        fi
+                    }
+
+                    wire_or_skip postgres      5432
+                    wire_or_skip redis         6379
+                    wire_or_skip rabbitmq      5672
+                    wire_or_skip minio         9000
+                    wire_or_skip elasticsearch 9200
+
+                    # Start only infra services that are NOT already handled above.
+                    INFRA_START=""
+                    for svc in postgres redis rabbitmq minio elasticsearch; do
+                        echo "$SKIP_INFRA" | grep -qw "$svc" || INFRA_START="$INFRA_START $svc"
+                    done
+
+                    if [ -n "$INFRA_START" ]; then
+                        echo "Starting infra services: $INFRA_START"
+                        $COMPOSE up -d --no-build --no-deps $INFRA_START
+                        echo "Waiting 15 s for infra to initialise..."
+                        sleep 15
+                    fi
+
+                    # Start application services. --no-deps skips depends_on
+                    # blocking so wired-in external services are not re-started.
+                    echo "Starting app services: backend frontend"
+                    $COMPOSE up -d --no-build --no-deps --remove-orphans backend frontend
                 '''
             }
         }
