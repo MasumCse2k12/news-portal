@@ -1,44 +1,26 @@
 -- =============================================================
 -- News Portal — PostgreSQL Setup Script
--- Run once on the production DB server as a superuser (postgres)
+-- Run ONCE on the production DB server as a superuser (postgres)
 -- Usage: psql -U postgres -f db-setup.sql
+--
+-- To RESET an existing database (re-run migrations from scratch):
+--   psql -U postgres -c "DROP DATABASE IF EXISTS news_portal;"
+--   psql -U postgres -f db-setup.sql
 -- =============================================================
 
--- 1. Create application user
-CREATE USER newsportal_user WITH
-    PASSWORD 'CHANGE_ME_STRONG_PASSWORD'
-    NOSUPERUSER
-    NOCREATEDB
-    NOCREATEROLE
-    LOGIN;
+CREATE USER my_news_portal WITH PASSWORD 'my_news_portal';
+CREATE DATABASE news_portal OWNER my_news_portal
+    ENCODING   = 'UTF8'
+    LC_COLLATE = 'en_US.UTF-8'
+    LC_CTYPE   = 'en_US.UTF-8'
+    TEMPLATE   = template0;
 
--- 2. Create database owned by application user
-CREATE DATABASE newsportal
-    WITH OWNER      = newsportal_user
-         ENCODING   = 'UTF8'
-         LC_COLLATE = 'en_US.UTF-8'
-         LC_CTYPE   = 'en_US.UTF-8'
-         TEMPLATE   = template0;
+-- Connect to the new database and grant schema privileges
+\c news_portal
 
--- 3. Connect to the new database
-\c newsportal
+-- Ensure the app user can create and use objects in the public schema
+-- (required explicitly in PostgreSQL 15+)
+GRANT ALL ON SCHEMA public TO my_news_portal;
+ALTER SCHEMA public OWNER TO my_news_portal;
 
--- 4. Restrict public schema access, grant only to app user
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT ALL ON SCHEMA public TO newsportal_user;
-
--- 5. Grant object-level privileges (covers tables Flyway will create)
-ALTER DEFAULT PRIVILEGES FOR ROLE newsportal_user IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO newsportal_user;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE newsportal_user IN SCHEMA public
-    GRANT USAGE, SELECT ON SEQUENCES TO newsportal_user;
-
--- 6. Optional: create a read-only reporting user
--- CREATE USER newsportal_readonly WITH PASSWORD 'CHANGE_ME_READONLY_PASSWORD' LOGIN;
--- GRANT CONNECT ON DATABASE newsportal TO newsportal_readonly;
--- GRANT USAGE ON SCHEMA public TO newsportal_readonly;
--- ALTER DEFAULT PRIVILEGES FOR ROLE newsportal_user IN SCHEMA public
---     GRANT SELECT ON TABLES TO newsportal_readonly;
-
--- Done — Flyway will run migrations on first app startup
+-- Done — Flyway will create all tables on first app startup

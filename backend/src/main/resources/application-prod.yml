@@ -4,8 +4,8 @@ spring:
 
 logging:
   level:
-    com.newsportal: INFO
-    root: WARN
+    com.newsportal: ERROR
+    root: ERROR
   pattern:
     console: '{"time":"%d{yyyy-MM-dd HH:mm:ss}","level":"%level","logger":"%logger{36}","message":"%msg"}%n'
 
