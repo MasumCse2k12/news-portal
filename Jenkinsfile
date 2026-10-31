@@ -186,8 +186,10 @@ pipeline {
         failure {
             echo "Deployment FAILED. Dumping recent container logs…"
             sh '''
+                ENV_OPT=""
+                [ -f .env ] && ENV_OPT="--env-file .env"
                 docker compose -f ${COMPOSE_FILE} -p ${APP_NAME} \
-                    logs --tail=80 || true
+                    $ENV_OPT logs --tail=80 || true
             '''
             sh 'rm -f .env'
         }

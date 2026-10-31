@@ -1,24 +1,19 @@
 FROM eclipse-temurin:25-jdk-alpine AS builder
 
-ENV GRADLE_VERSION=9.0
-ENV GRADLE_HOME=/opt/gradle/gradle-${GRADLE_VERSION}
-ENV PATH=${PATH}:${GRADLE_HOME}/bin
-
-RUN apk add --no-cache wget unzip && \
-    wget -q https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip -O /tmp/gradle.zip && \
-    unzip -q /tmp/gradle.zip -d /opt/gradle && \
-    rm /tmp/gradle.zip
-
 WORKDIR /build
 
-COPY build.gradle.kts settings.gradle.kts ./
+COPY gradlew .
 COPY gradle ./gradle
+COPY build.gradle.kts settings.gradle.kts ./
+
+RUN chmod +x gradlew
+
 RUN --mount=type=cache,target=/root/.gradle \
-    gradle dependencies --no-daemon -q
+    ./gradlew dependencies --no-daemon -q
 
 COPY src ./src
 RUN --mount=type=cache,target=/root/.gradle \
-    gradle bootJar -x test --no-daemon -q
+    ./gradlew bootJar -x test --no-daemon -q
 
 FROM eclipse-temurin:25-jre-alpine AS runtime
 
@@ -32,7 +27,7 @@ RUN chown appuser:appgroup app.jar
 
 USER appuser
 
-EXPOSE 8080
+EXPOSE 8084
 
 ENTRYPOINT ["java", \
   "-XX:+UseContainerSupport", \
