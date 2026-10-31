@@ -23,7 +23,7 @@ val mapstructVersion     = "1.6.3"
 val jjwtVersion          = "0.12.6"
 val minioVersion         = "8.5.17"
 val springdocVersion     = "3.0.0"
-val resilience4jVersion  = "3.0.0"
+val resilience4jVersion  = "2.4.0"
 
 dependencies {
     // Web
